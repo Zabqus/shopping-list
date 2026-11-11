@@ -67,35 +67,48 @@ Zmiany synchronizują się na żywo między urządzeniami.
 
 ```
 GET    /api/lists                    lista list
-POST   /api/lists                    nowa lista
+POST   /api/lists                    nowa lista              { name, icon? }
+GET    /api/lists/:id                jedna lista
+PATCH  /api/lists/:id                zmień nazwę / ikonę     { name?, icon? }
+DELETE /api/lists/:id                usuń (nie da się usunąć ostatniej)
 GET    /api/lists/:id/items          produkty na liście
-POST   /api/lists/:id/items          dodaj produkt (parsuje „2 mleko”, „mleko x2”)
-PATCH  /api/items/:id                zmień (odhacz, ilość, kategoria, notatka)
-DELETE /api/items/:id                usuń
-POST   /api/lists/:id/clear-checked  usuń odhaczone
-GET    /api/suggest?q=ml             podpowiedzi z historii
+POST   /api/lists/:id/items          dodaj produkt           { text: "2 mleko" }
+POST   /api/lists/:id/clear-checked  usuń odhaczone → zwraca usunięte (do „Cofnij”)
+POST   /api/lists/:id/restore        przywróć usunięte       { items: Item[] }
+GET    /api/items/:id                jeden produkt
+PATCH  /api/items/:id                zmień { checked?, name?, quantity?, unit?, note?, category_id? }
+DELETE /api/items/:id                usuń → zwraca usunięty (do „Cofnij”)
+GET    /api/categories               kategorie w kolejności alejek
+GET    /api/suggest?q=ml&list=1      podpowiedzi z historii (bez tego, co już jest na liście)
 GET    /api/events                   strumień SSE ze zmianami (live sync)
 GET    /api/health                   healthcheck dla Dockera
 ```
+
+- Nagłówek `X-Client-Id` trafia do zdarzeń SSE jako `source` — klient ignoruje własne zmiany.
+- Dodanie produktu, który już jest na liście, nie tworzy duplikatu: odhaczony wraca na listę,
+  nieodhaczony dostaje zsumowaną ilość (gdy jednostki pasują).
+- Kategoria nowego produktu: wcześniejszy wybór użytkownika (`products`) → słownik PL
+  (`src/lib/server/categories.ts`) → „Inne”. Ręczna zmiana kategorii jest zapamiętywana.
 
 ---
 
 ## 4. Funkcje
 
 ### MVP (wersja 1)
-- [ ] Jedno pole do dodawania na górze, autofocus, Enter = dodaj
-- [ ] Parsowanie ilości: `2 mleko`, `mleko x2`, `1kg ziemniaki`
-- [ ] Autouzupełnianie z historii zakupów
-- [ ] Automatyczne kategorie (wbudowany słownik PL + uczenie się z twoich wyborów)
-- [ ] Grupowanie po kategoriach w ustalonej kolejności
-- [ ] Odhaczanie tapnięciem, odhaczone spadają na dół (wyszarzone)
-- [ ] Usuwanie + **„Cofnij”** (toast z undo)
-- [ ] „Wyczyść odhaczone”
-- [ ] Kilka list (np. Spożywcze, Dom, Budowlane)
-- [ ] Live sync między urządzeniami (SSE)
-- [ ] PWA: manifest, ikona, instalacja na telefonie, cache aplikacji
-- [ ] Tryb jasny / ciemny (automatycznie wg systemu)
-- [ ] Healthcheck + Docker + CI
+- [x] Jedno pole do dodawania na górze, autofocus (tylko desktop), Enter = dodaj
+- [x] Parsowanie ilości: `2 mleko`, `mleko x2`, `1kg ziemniaki`, `banany 6`
+- [x] Autouzupełnianie z historii zakupów (strzałki + Enter lub klik)
+- [x] Automatyczne kategorie (wbudowany słownik PL + uczenie się z twoich wyborów)
+- [x] Grupowanie po kategoriach w ustalonej kolejności
+- [x] Odhaczanie tapnięciem, odhaczone spadają na dół (wyszarzone, sekcja „W koszyku”)
+- [x] Usuwanie + **„Cofnij”** (toast z undo)
+- [x] „Wyczyść odhaczone” (też z „Cofnij”)
+- [x] Kilka list (np. Spożywcze, Dom, Budowlane) — dodawanie, zmiana nazwy/ikony, usuwanie
+- [x] Live sync między urządzeniami (SSE, odświeżenie po powrocie do karty / odzyskaniu sieci)
+- [x] PWA: manifest, ikona, cache aplikacji — ⚠️ instalacja na telefonie do sprawdzenia w Etapie 4 (HTTPS)
+- [x] Tryb jasny / ciemny (automatycznie wg systemu)
+- [ ] Healthcheck + Docker + CI (healthcheck jest, Docker/CI do sprawdzenia w Etapie 4)
+- [x] Zmiana kategorii produktu (ikona kategorii przy produkcie → systemowy wybór)
 
 ### Wersja 2 — wygoda
 - [ ] **Tryb offline** z kolejką zmian (synchronizacja po powrocie sieci)
@@ -126,15 +139,21 @@ zakupy/
 ├── src/
 │   ├── lib/
 │   │   ├── server/
-│   │   │   ├── db/            # połączenie, migracje, zapytania
+│   │   │   ├── db/            # połączenie, migracje, queries.ts (wszystkie zapytania)
+│   │   │   ├── categories.ts  # słownik PL: produkt → kategoria
 │   │   │   ├── events.ts      # SSE — rozgłaszanie zmian
-│   │   │   └── parse.ts       # parsowanie „2 mleko”, kategorie
+│   │   │   └── http.ts        # walidacja body/parametrów w endpointach
 │   │   ├── components/        # komponenty UI (Svelte)
+│   │   ├── api.ts             # klient REST dla frontendu (X-Client-Id)
+│   │   ├── live.svelte.ts     # połączenie SSE po stronie przeglądarki
+│   │   ├── parse.ts           # parsowanie „2 mleko” (wspólne: front + back)
+│   │   ├── format.ts          # formatowanie ilości
 │   │   └── types.ts           # wspólne typy (front + back)
 │   ├── routes/
-│   │   ├── +page.svelte       # główny widok listy
+│   │   ├── +page.server.ts    # „/” → przekierowanie na ostatnią listę
+│   │   ├── l/[id]/            # główny widok listy
 │   │   └── api/...            # endpointy REST + SSE
-│   └── service-worker.ts      # PWA
+│   └── service-worker/        # PWA (SvelteKit 3: $app/manifest, $app/service-worker)
 ├── static/                    # ikony, manifest
 ├── .github/workflows/
 │   └── docker.yml             # build + push obrazu do GHCR
@@ -169,14 +188,15 @@ zakupy/
 - Tabele, zapytania, endpointy REST
 - Parsowanie ilości, słownik kategorii, podpowiedzi
 - SSE do live sync
-- ✅ API przetestowane
+- ✅ API przetestowane — **zrobione**
 
 ### Etap 3 — MVP frontend
 - Widok listy, pole dodawania z autouzupełnianiem, grupy kategorii
 - Odhaczanie, usuwanie z „Cofnij”, wiele list
 - Live sync w UI, tryb ciemny, wygląd mobile-first
 - PWA (manifest, ikony, service worker)
-- ✅ działa na telefonie w sieci lokalnej
+- ✅ działa na telefonie w sieci lokalnej — **zrobione** (sprawdzone w przeglądarce, także widok mobilny;
+  test na prawdziwym telefonie i instalacja PWA → Etap 4, bo service worker wymaga HTTPS poza localhost)
 
 ### Etap 4 — Wdrożenie
 - `Dockerfile` (multi-stage), `.dockerignore`

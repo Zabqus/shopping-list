@@ -1,7 +1,8 @@
-# Stack do wklejenia w Dockge. Zmień <twoj-nick> na swój login GitHuba (małymi literami).
+# Stack do wklejenia w Dockge.
+# W sekcji .env stacka ustaw: ORIGIN=https://<adres, pod którym otwierasz aplikację>
 services:
   zakupy:
-    image: ghcr.io/<twoj-nick>/zakupy:latest
+    image: ghcr.io/zabqus/zakupy:latest
     container_name: zakupy
     restart: unless-stopped
     ports:
@@ -10,4 +11,5 @@ services:
       - ORIGIN=${ORIGIN}
       - DATABASE_PATH=/app/data/zakupy.db
     volumes:
+      # Folder może zostać utworzony przez Dockge jako root — entrypoint obrazu sam poprawia uprawnienia.
       - ./data:/app/data

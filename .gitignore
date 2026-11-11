@@ -1,0 +1,19 @@
+node_modules/
+.svelte-kit/
+build/
+.vite/
+
+# dane i bazy — nigdy w gicie
+data/
+*.db
+*.db-*
+
+# sekrety
+.env
+.env.*
+!.env.example
+
+# system / edytory
+.DS_Store
+Thumbs.db
+*.log

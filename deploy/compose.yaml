@@ -1,0 +1,13 @@
+# Stack do wklejenia w Dockge. Zmień <twoj-nick> na swój login GitHuba (małymi literami).
+services:
+  zakupy:
+    image: ghcr.io/<twoj-nick>/zakupy:latest
+    container_name: zakupy
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - ORIGIN=${ORIGIN}
+      - DATABASE_PATH=/app/data/zakupy.db
+    volumes:
+      - ./data:/app/data

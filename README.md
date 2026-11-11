@@ -27,12 +27,15 @@ npm run dev            # http://localhost:5173
 ## Struktura
 
 ```
-src/lib/server/db/          połączenie z SQLite i migracje (migrations/*.sql)
+src/lib/server/db/          połączenie z SQLite, migracje (migrations/*.sql), queries.ts
+src/lib/server/categories.ts  słownik PL: produkt → kategoria
 src/lib/server/events.ts    rozgłaszanie zmian (SSE)
-src/lib/server/parse.ts     parsowanie „2 mleko”, „mleko x2”
+src/lib/parse.ts            parsowanie „2 mleko”, „mleko x2” (front + back)
+src/lib/components/         komponenty UI
 src/lib/types.ts            wspólne typy
+src/routes/l/[id]/          widok listy
 src/routes/api/             endpointy REST + /api/events + /api/health
-src/service-worker.ts       PWA / cache
+src/service-worker/         PWA / cache
 deploy/                     compose.yaml dla Dockge, przykładowy nginx
 ```
 

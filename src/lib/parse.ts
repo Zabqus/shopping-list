@@ -5,8 +5,8 @@ const unitPattern = UNITS.join('|');
 
 // „2 mleko”, „1kg ziemniaki”, „1,5 l mleka”
 const leading = new RegExp(`^(\\d+(?:[.,]\\d+)?)\\s*(${unitPattern})?\\.?\\s+(.+)$`, 'i');
-// „mleko x2”, „mleko 2x”, „ziemniaki 1kg”
-const trailing = new RegExp(`^(.+?)\\s+(?:x\\s*(\\d+(?:[.,]\\d+)?)|(\\d+(?:[.,]\\d+)?)\\s*(x|${unitPattern})\\.?)$`, 'i');
+// „mleko x2”, „mleko 2x”, „ziemniaki 1kg”, „banany 6”
+const trailing = new RegExp(`^(.+?)\\s+(?:x\\s*(\\d+(?:[.,]\\d+)?)|(\\d+(?:[.,]\\d+)?)\\s*(x|${unitPattern})?\\.?)$`, 'i');
 
 const toNumber = (value: string) => Number(value.replace(',', '.'));
 

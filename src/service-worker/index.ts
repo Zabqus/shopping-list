@@ -1,9 +1,12 @@
-import { build, files, version } from '$service-worker';
-
-const sw = self as unknown as ServiceWorkerGlobalScope;
+import { self as sw } from '$app/service-worker';
+import { assets, immutable } from '$app/manifest';
+import { version } from '$app/env';
 
 const CACHE = `zakupy-${version}`;
-const ASSETS = [...build, ...files];
+
+// Ścieżki z manifestu są względne wobec base path — zamieniamy je na pełne ścieżki URL.
+const toPath = (path: string) => new URL(path, sw.registration.scope).pathname;
+const ASSETS = [...immutable, ...assets].map(({ path }) => toPath(path));
 
 sw.addEventListener('install', (event) => {
 	event.waitUntil(
@@ -34,11 +37,13 @@ sw.addEventListener('fetch', (event) => {
 		(async () => {
 			const cache = await caches.open(CACHE);
 
+			// Pliki aplikacji (niezmienne) — zawsze z cache.
 			if (ASSETS.includes(url.pathname)) {
 				const cached = await cache.match(url.pathname);
 				if (cached) return cached;
 			}
 
+			// Strony i dane — najpierw sieć (świeże dane), bez sieci ostatnia zapisana wersja.
 			try {
 				const response = await fetch(request);
 				if (response.ok) cache.put(request, response.clone());

@@ -41,7 +41,30 @@ export interface ParsedItem {
 	unit: string | null;
 }
 
-export type ChangeEvent =
+/** Pola, które można zmienić przez PATCH /api/items/:id */
+export interface ItemPatch {
+	name?: string;
+	quantity?: number | null;
+	unit?: string | null;
+	note?: string | null;
+	category_id?: number | null;
+	checked?: boolean;
+}
+
+/** Podpowiedź z historii zakupów (GET /api/suggest) */
+export interface Suggestion {
+	name: string;
+	category_id: number | null;
+	use_count: number;
+}
+
+/**
+ * Zdarzenie live sync. `source` to identyfikator klienta, który wywołał zmianę
+ * (nagłówek X-Client-Id) — klient ignoruje własne zdarzenia.
+ */
+export type ChangeEvent = (
 	| { type: 'list'; action: 'created' | 'updated' | 'deleted'; listId: number }
 	| { type: 'item'; action: 'created' | 'updated' | 'deleted'; listId: number; itemId: number }
-	| { type: 'items-cleared'; listId: number };
+	| { type: 'items-cleared'; listId: number }
+	| { type: 'items-restored'; listId: number }
+) & { source?: string };

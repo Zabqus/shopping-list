@@ -4,6 +4,8 @@ export interface ShoppingList {
 	icon: string | null;
 	position: number;
 	created_at: string;
+	/** Liczba nieodhaczonych produktów (tylko w GET /api/lists i w danych strony). */
+	open_count?: number;
 }
 
 export interface Category {

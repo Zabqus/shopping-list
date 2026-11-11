@@ -1,16 +1,19 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { flip } from 'svelte/animate';
-	import { slide } from 'svelte/transition';
+	import { fade, slide } from 'svelte/transition';
 	import { goto, invalidateAll } from '$app/navigation';
 	import { api, ApiError } from '#lib/api.js';
+	import { categoryHue } from '#lib/categoryStyle.js';
 	import { connectLive } from '#lib/live.svelte.js';
-	import type { Category, Item, ShoppingList } from '#lib/types.js';
+	import type { Category, Item, ItemPatch, ShoppingList } from '#lib/types.js';
 	import AddItem from '#lib/components/AddItem.svelte';
+	import EditItemSheet from '#lib/components/EditItemSheet.svelte';
 	import ItemRow from '#lib/components/ItemRow.svelte';
 	import ListDialog from '#lib/components/ListDialog.svelte';
-	import ListTabs from '#lib/components/ListTabs.svelte';
+	import ListsSheet from '#lib/components/ListsSheet.svelte';
 	import Toast, { type ToastData } from '#lib/components/Toast.svelte';
+	import WakeLockButton from '#lib/components/WakeLockButton.svelte';
 
 	let { data } = $props();
 
@@ -34,6 +37,7 @@
 			.filter((c) => byCategory.has(c.id))
 			.map((category) => ({
 				category,
+				hue: categoryHue(category),
 				items: byCategory.get(category.id)!.sort((a, b) => a.position - b.position || a.id - b.id)
 			}));
 	});
@@ -41,7 +45,33 @@
 	const checked = $derived(
 		items.filter((i) => i.checked).sort((a, b) => (b.checked_at ?? '').localeCompare(a.checked_at ?? ''))
 	);
-	const remaining = $derived(items.length - checked.length);
+	const total = $derived(items.length);
+	const done = $derived(checked.length);
+	const allDone = $derived(total > 0 && done === total);
+
+	let showChecked = $state(true);
+
+	// ───────────── Podpowiedź o gestach (raz) ─────────────
+
+	const TIP_KEY = 'zakupy:tip-gestures';
+	let showTip = $state(false);
+
+	onMount(() => {
+		try {
+			showTip = localStorage.getItem(TIP_KEY) !== 'seen';
+		} catch {
+			showTip = false;
+		}
+	});
+
+	function hideTip() {
+		showTip = false;
+		try {
+			localStorage.setItem(TIP_KEY, 'seen');
+		} catch {
+			// bez localStorage podpowiedź wróci po odświeżeniu — nic groźnego
+		}
+	}
 
 	// ───────────── Toast ─────────────
 
@@ -59,7 +89,7 @@
 		invalidateAll();
 	}
 
-	// ───────────── Operacje ─────────────
+	// ───────────── Operacje na produktach ─────────────
 
 	const upsert = (item: Item) => {
 		items = items.some((i) => i.id === item.id) ? items.map((i) => (i.id === item.id ? item : i)) : [...items, item];
@@ -76,7 +106,6 @@
 	async function toggle(item: Item) {
 		const next = !item.checked;
 		upsert({ ...item, checked: next, checked_at: next ? new Date().toISOString() : null });
-		if (next) navigator.vibrate?.(15);
 		try {
 			upsert(await api.updateItem(item.id, { checked: next }));
 		} catch (err) {
@@ -84,10 +113,10 @@
 		}
 	}
 
-	async function changeCategory(item: Item, categoryId: number) {
-		upsert({ ...item, category_id: categoryId });
+	async function saveItem(item: Item, patch: ItemPatch) {
+		upsert({ ...item, ...patch });
 		try {
-			upsert(await api.updateItem(item.id, { category_id: categoryId }));
+			upsert(await api.updateItem(item.id, patch));
 		} catch (err) {
 			fail(err);
 		}
@@ -139,9 +168,12 @@
 		return mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14) ? few : many;
 	}
 
+	let editing = $state<Item | null>(null);
+
 	// ───────────── Listy ─────────────
 
-	let dialog: ListDialog;
+	let listsOpen = $state(false);
+	let listDialog: ListDialog;
 
 	async function saveList({ id, name, icon }: { id: number | null; name: string; icon: string }) {
 		try {
@@ -169,13 +201,12 @@
 	// ───────────── Live sync ─────────────
 
 	let connected = $state(true);
+	let live = $state<ReturnType<typeof connectLive> | null>(null);
 	let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 	const refresh = () => {
 		clearTimeout(refreshTimer);
 		refreshTimer = setTimeout(() => invalidateAll(), 100);
 	};
-
-	let live = $state<ReturnType<typeof connectLive> | null>(null);
 
 	// Baner „brak połączenia” dopiero po chwili — krótkie mrugnięcia sieci nie są warte uwagi.
 	$effect(() => {
@@ -198,7 +229,8 @@
 					} else {
 						refresh();
 					}
-				} else if (event.listId === list.id) {
+				} else {
+					// Też zmiany na innych listach — odświeżają liczniki w panelu list.
 					refresh();
 				}
 			},
@@ -216,54 +248,72 @@
 	<title>{list.name} · Zakupy</title>
 </svelte:head>
 
+<header class="top">
+	<button type="button" class="switch" onclick={() => (listsOpen = true)} aria-label="Zmień listę: {list.name}">
+		<span class="list-icon" aria-hidden="true">{list.icon ?? '📝'}</span>
+		<span class="list-name">{list.name}</span>
+		<svg class="chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" /></svg>
+	</button>
+	<WakeLockButton />
+</header>
+
 <div class="page">
-	<header>
-		<div class="title">
-			<h1><span aria-hidden="true">{list.icon ?? '📝'}</span> {list.name}</h1>
-			<button
-				type="button"
-				class="icon-button"
-				aria-label="Edytuj listę"
-				onclick={() => dialog.show(list, data.lists.length > 1)}
+	{#if total > 0}
+		<div class="progress" class:complete={allDone}>
+			<div class="progress-text">
+				<span><b>{done}</b> z {total} w koszyku</span>
+				{#if allDone}<span class="hooray">Wszystko kupione 🎉</span>{/if}
+			</div>
+			<div
+				class="track"
+				role="progressbar"
+				aria-label="Postęp zakupów"
+				aria-valuemin={0}
+				aria-valuemax={total}
+				aria-valuenow={done}
 			>
-				<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" /></svg>
-			</button>
+				<div class="fill" style:width="{(done / total) * 100}%"></div>
+			</div>
 		</div>
-		<ListTabs lists={data.lists} currentId={list.id} oncreate={() => dialog.show()} />
-	</header>
+	{/if}
 
 	{#if !connected}
-		<p class="offline" transition:slide={{ duration: 150 }}>
+		<p class="banner offline" transition:slide={{ duration: 150 }}>
 			Brak połączenia z serwerem — zmiany z innych urządzeń mogą nie docierać.
 		</p>
 	{/if}
 
-	<div class="sticky">
-		<AddItem listId={list.id} categories={data.categories} onadd={addItem} />
-	</div>
+	{#if showTip && total > 0}
+		<div class="banner tip" transition:slide={{ duration: 180 }}>
+			<span>
+				👉 Przesuń w prawo — <b>kupione</b>, w lewo — <b>usuń</b>. Przytrzymaj, żeby <b>edytować</b>.
+			</span>
+			<button type="button" onclick={hideTip} aria-label="Zamknij podpowiedź">OK</button>
+		</div>
+	{/if}
 
 	{#key list.id}
 		<main>
-			{#if items.length === 0}
-				<div class="empty">
-					<p class="empty-icon" aria-hidden="true">🧺</p>
-					<p>Lista jest pusta.</p>
-					<p class="hint">Wpisz produkt powyżej — np. <b>2 mleko</b>, <b>chleb</b> albo <b>1kg ziemniaki</b>.</p>
-				</div>
-			{:else if remaining === 0}
-				<div class="empty done">
-					<p class="empty-icon" aria-hidden="true">🎉</p>
-					<p>Wszystko kupione!</p>
+			{#if total === 0}
+				<div class="empty" in:fade={{ duration: 200 }}>
+					<div class="empty-art" aria-hidden="true">🧺</div>
+					<h2>Pusto tutaj</h2>
+					<p>Wpisz produkt na dole ekranu, np.</p>
+					<p class="examples"><span>2 mleko</span><span>chleb</span><span>1kg ziemniaki</span></p>
 				</div>
 			{/if}
 
 			{#each groups as group (group.category.id)}
-				<section class="group" transition:slide={{ duration: 180 }}>
-					<h2><span aria-hidden="true">{group.category.icon}</span> {group.category.name}</h2>
+				<section class="group" style:--hue={group.hue} transition:slide={{ duration: 200 }}>
+					<h2>
+						<span class="cat-icon" aria-hidden="true">{group.category.icon}</span>
+						<span class="cat-name">{group.category.name}</span>
+						<span class="cat-count">{group.items.length}</span>
+					</h2>
 					<ul>
 						{#each group.items as item (item.id)}
-							<li animate:flip={{ duration: 180 }} transition:slide={{ duration: 180 }}>
-								<ItemRow {item} categories={data.categories} ontoggle={toggle} ondelete={remove} oncategory={changeCategory} />
+							<li animate:flip={{ duration: 200 }} transition:slide={{ duration: 200 }}>
+								<ItemRow {item} ontoggle={toggle} ondelete={remove} onedit={(i) => (editing = i)} />
 							</li>
 						{/each}
 					</ul>
@@ -271,183 +321,372 @@
 			{/each}
 
 			{#if checked.length > 0}
-				<section class="group checked" transition:slide={{ duration: 180 }}>
-					<div class="checked-header">
-						<h2>W koszyku · {checked.length}</h2>
+				<section class="group basket" style:--hue="140" transition:slide={{ duration: 200 }}>
+					<div class="basket-header">
+						<button
+							type="button"
+							class="basket-toggle"
+							aria-expanded={showChecked}
+							onclick={() => (showChecked = !showChecked)}
+						>
+							<svg class="chevron" class:collapsed={!showChecked} viewBox="0 0 24 24" aria-hidden="true">
+								<path d="M7 10l5 5 5-5" />
+							</svg>
+							W koszyku
+							<span class="cat-count">{checked.length}</span>
+						</button>
 						<button type="button" class="clear" onclick={clearChecked}>Wyczyść</button>
 					</div>
-					<ul>
-						{#each checked as item (item.id)}
-							<li animate:flip={{ duration: 180 }} transition:slide={{ duration: 180 }}>
-								<ItemRow {item} categories={data.categories} ontoggle={toggle} ondelete={remove} oncategory={changeCategory} />
-							</li>
-						{/each}
-					</ul>
+					{#if showChecked}
+						<ul transition:slide={{ duration: 200 }}>
+							{#each checked as item (item.id)}
+								<li animate:flip={{ duration: 200 }} transition:slide={{ duration: 200 }}>
+									<ItemRow {item} ontoggle={toggle} ondelete={remove} onedit={(i) => (editing = i)} />
+								</li>
+							{/each}
+						</ul>
+					{/if}
 				</section>
 			{/if}
 		</main>
 	{/key}
 </div>
 
-<ListDialog bind:this={dialog} onsave={saveList} ondelete={deleteList} />
+<AddItem listId={list.id} categories={data.categories} onadd={addItem} />
+
+<ListsSheet
+	bind:open={listsOpen}
+	lists={data.lists}
+	currentId={list.id}
+	onselect={(l) => {
+		listsOpen = false;
+		if (l.id !== list.id) goto(`/l/${l.id}`, { replaceState: true });
+	}}
+	oncreate={() => {
+		listsOpen = false;
+		listDialog.show();
+	}}
+	onedit={(l) => {
+		listsOpen = false;
+		listDialog.show(l, data.lists.length > 1);
+	}}
+/>
+<ListDialog bind:this={listDialog} onsave={saveList} ondelete={deleteList} />
+<EditItemSheet
+	item={editing}
+	categories={data.categories}
+	onsave={saveItem}
+	ondelete={remove}
+	onclose={() => (editing = null)}
+/>
 <Toast {toast} ondismiss={() => (toast = null)} />
 
 <style>
-	.page {
-		max-width: 640px;
-		margin: 0 auto;
-		padding: calc(var(--space) + env(safe-area-inset-top)) var(--space)
-			calc(6rem + env(safe-area-inset-bottom));
-	}
-
-	header {
-		display: grid;
-		gap: 0.75rem;
-	}
-
-	.title {
+	/* ───── Nagłówek ───── */
+	.top {
+		position: sticky;
+		top: 0;
+		z-index: 10;
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
+		max-width: 640px;
+		margin: 0 auto;
+		padding: calc(0.5rem + env(safe-area-inset-top)) 0.75rem 0.5rem;
+		background: var(--header-bg);
+		backdrop-filter: saturate(1.6) blur(16px);
+		-webkit-backdrop-filter: saturate(1.6) blur(16px);
 	}
 
-	h1 {
+	.switch {
 		flex: 1;
 		min-width: 0;
-		margin: 0;
-		font-size: 1.6rem;
-		line-height: 1.2;
-		overflow-wrap: anywhere;
-	}
-
-	.icon-button {
-		flex: none;
-		display: grid;
-		place-items: center;
-		width: var(--tap);
-		height: var(--tap);
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		min-height: 52px;
+		padding: 0.25rem 0.5rem 0.25rem 0.25rem;
 		border: 0;
-		border-radius: 50%;
+		border-radius: 16px;
 		background: none;
-		color: var(--text-muted);
 		cursor: pointer;
+		text-align: left;
 	}
 
-	.icon-button:hover {
+	.switch:active {
 		background: var(--chip);
 	}
 
-	.icon-button svg {
-		width: 22px;
-		height: 22px;
-		fill: currentColor;
+	.list-icon {
+		display: grid;
+		place-items: center;
+		flex: none;
+		width: 44px;
+		height: 44px;
+		border-radius: 14px;
+		background: var(--surface);
+		box-shadow: var(--shadow-sm);
+		font-size: 1.4rem;
 	}
 
-	.offline {
-		margin: 0.75rem 0 0;
-		padding: 0.6rem 0.9rem;
-		border-radius: var(--radius);
-		background: var(--warning-bg);
-		color: var(--warning-text);
+	.list-name {
+		min-width: 0;
+		font-size: 1.55rem;
+		font-weight: 800;
+		letter-spacing: -0.025em;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.chevron {
+		flex: none;
+		width: 22px;
+		height: 22px;
+		fill: none;
+		stroke: var(--text-muted);
+		stroke-width: 2.4;
+		stroke-linecap: round;
+		stroke-linejoin: round;
+		transition: transform 0.2s;
+	}
+
+	.chevron.collapsed {
+		transform: rotate(-90deg);
+	}
+
+	/* ───── Treść ───── */
+	.page {
+		max-width: 640px;
+		margin: 0 auto;
+		padding: 0.25rem 0.75rem calc(var(--bar-h) + 5rem + env(safe-area-inset-bottom));
+	}
+
+	.progress {
+		padding: 0.25rem 0.35rem 0.85rem;
+	}
+
+	.progress-text {
+		display: flex;
+		justify-content: space-between;
+		margin-bottom: 0.4rem;
+		font-size: 0.9rem;
+		color: var(--text-muted);
+	}
+
+	.progress-text b {
+		color: var(--text);
+	}
+
+	.hooray {
+		font-weight: 700;
+		color: var(--accent);
+	}
+
+	.track {
+		height: 8px;
+		border-radius: 99px;
+		background: var(--chip);
+		overflow: hidden;
+	}
+
+	.fill {
+		height: 100%;
+		border-radius: inherit;
+		background: linear-gradient(90deg, #22c55e, #16a34a);
+		transition: width 0.4s cubic-bezier(0.2, 0.9, 0.3, 1);
+	}
+
+	.banner {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		margin: 0 0 0.85rem;
+		padding: 0.7rem 0.9rem;
+		border-radius: 16px;
 		font-size: 0.9rem;
 	}
 
-	.sticky {
-		position: sticky;
-		top: 0;
-		z-index: 5;
-		margin: 0 calc(var(--space) * -1);
-		padding: 0.75rem var(--space);
-		background: var(--bg);
+	.offline {
+		background: var(--warning-bg);
+		color: var(--warning-text);
+	}
+
+	.tip {
+		background: var(--accent-soft);
+	}
+
+	.tip span {
+		flex: 1;
+	}
+
+	.tip button {
+		flex: none;
+		min-height: 36px;
+		padding: 0 0.9rem;
+		border: 0;
+		border-radius: 99px;
+		background: var(--accent);
+		color: var(--accent-contrast);
+		font-weight: 700;
+		cursor: pointer;
 	}
 
 	main {
 		display: grid;
-		gap: 1rem;
+		gap: 0.85rem;
 	}
 
 	.group {
 		overflow: hidden;
-		border: 1px solid var(--border);
 		border-radius: var(--radius);
 		background: var(--surface);
+		box-shadow: var(--shadow-sm);
 	}
 
-	h2 {
+	.group h2,
+	.basket-header {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
 		margin: 0;
-		padding: 0.6rem var(--space) 0.4rem;
-		font-size: 0.8rem;
-		font-weight: 700;
-		letter-spacing: 0.05em;
+		padding: 0.75rem 1rem 0.35rem;
+	}
+
+	.cat-icon {
+		display: grid;
+		place-items: center;
+		width: 30px;
+		height: 30px;
+		border-radius: 10px;
+		background: hsl(var(--hue) 70% var(--tint-l));
+		font-size: 1rem;
+	}
+
+	.cat-name {
+		flex: 1;
+		font-size: 0.82rem;
+		font-weight: 800;
+		letter-spacing: 0.06em;
 		text-transform: uppercase;
+		color: hsl(var(--hue) 40% var(--tint-text-l));
+	}
+
+	.cat-count {
+		min-width: 24px;
+		padding: 0.05rem 0.45rem;
+		border-radius: 99px;
+		background: var(--chip);
 		color: var(--text-muted);
+		font-size: 0.78rem;
+		font-weight: 700;
+		text-align: center;
 	}
 
 	ul {
 		list-style: none;
 		margin: 0;
-		padding: 0;
+		padding: 0 0 0.35rem;
 	}
 
-	ul li:last-child :global(.row) {
-		border-bottom: 0;
+	li + li {
+		border-top: 1px solid var(--border);
 	}
 
-	.checked {
+	/* ───── Koszyk ───── */
+	.basket {
+		background: transparent;
+		box-shadow: none;
+		border: 1.5px dashed var(--border-strong);
+	}
+
+	.basket :global(.row) {
 		background: transparent;
 	}
 
-	.checked :global(.row) {
-		background: transparent;
+	.basket-header {
+		padding: 0.35rem 0.5rem 0.35rem 0.6rem;
 	}
 
-	.checked-header {
+	.basket-toggle {
+		flex: 1;
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
-		padding-right: 0.25rem;
-	}
-
-	.clear {
-		min-height: 36px;
-		padding: 0 0.75rem;
+		gap: 0.4rem;
+		min-height: var(--tap);
 		border: 0;
-		border-radius: 8px;
 		background: none;
-		color: var(--danger);
-		font-size: 0.9rem;
-		font-weight: 600;
+		font-size: 0.82rem;
+		font-weight: 800;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: var(--text-muted);
 		cursor: pointer;
 	}
 
-	.clear:hover {
-		background: var(--chip);
+	.clear {
+		min-height: 38px;
+		padding: 0 0.9rem;
+		border: 0;
+		border-radius: 99px;
+		background: var(--danger-soft);
+		color: var(--danger);
+		font-size: 0.88rem;
+		font-weight: 700;
+		cursor: pointer;
 	}
 
+	/* ───── Pusty stan ───── */
 	.empty {
-		padding: 2.5rem 1rem;
+		padding: 3.5rem 1rem 2rem;
 		text-align: center;
-		color: var(--text-muted);
+	}
+
+	.empty-art {
+		display: grid;
+		place-items: center;
+		width: 96px;
+		height: 96px;
+		margin: 0 auto 1rem;
+		border-radius: 32px;
+		background: var(--surface);
+		box-shadow: var(--shadow-sm);
+		font-size: 3rem;
+	}
+
+	.empty h2 {
+		margin: 0 0 0.35rem;
+		font-size: 1.3rem;
+		font-weight: 800;
 	}
 
 	.empty p {
-		margin: 0.25rem 0;
+		margin: 0;
+		color: var(--text-muted);
 	}
 
-	.empty-icon {
-		font-size: 2.5rem;
+	.examples {
+		display: flex;
+		justify-content: center;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+		margin-top: 0.75rem !important;
 	}
 
-	.hint {
-		font-size: 0.9rem;
-	}
-
-	.hint b {
+	.examples span {
+		padding: 0.3rem 0.75rem;
+		border-radius: 99px;
+		background: var(--surface);
+		box-shadow: var(--shadow-sm);
 		color: var(--text);
+		font-size: 0.9rem;
 		font-weight: 600;
 	}
 
-	.done {
-		padding: 1.5rem 1rem;
+	@media (prefers-reduced-motion: reduce) {
+		.fill,
+		.chevron {
+			transition: none;
+		}
 	}
 </style>

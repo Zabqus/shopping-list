@@ -39,7 +39,12 @@ const capitalize = (text: string) => text.charAt(0).toLocaleUpperCase('pl') + te
 // ───────────────────────── Listy ─────────────────────────
 
 export function getLists(): ShoppingList[] {
-	return getDb().prepare('SELECT * FROM lists ORDER BY position, id').all() as unknown as ShoppingList[];
+	return getDb()
+		.prepare(
+			`SELECT l.*, (SELECT COUNT(*) FROM items i WHERE i.list_id = l.id AND i.checked = 0) AS open_count
+			 FROM lists l ORDER BY l.position, l.id`
+		)
+		.all() as unknown as ShoppingList[];
 }
 
 export function getList(id: number): ShoppingList | undefined {

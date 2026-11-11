@@ -39,7 +39,8 @@
 		position: fixed;
 		left: 0;
 		right: 0;
-		bottom: calc(var(--space) + env(safe-area-inset-bottom));
+		/* nad paskiem dodawania produktów */
+		bottom: calc(var(--bar-h) + 0.5rem + env(safe-area-inset-bottom));
 		display: flex;
 		justify-content: center;
 		padding: 0 var(--space);
@@ -53,8 +54,9 @@
 		align-items: center;
 		gap: 0.25rem;
 		width: min(100%, 480px);
-		padding: 0.25rem 0.25rem 0.25rem 1rem;
-		border-radius: var(--radius);
+		padding: 0.25rem 0.25rem 0.25rem 1.1rem;
+		border-radius: 16px;
+		font-weight: 550;
 		background: var(--toast-bg);
 		color: var(--toast-text);
 		box-shadow: var(--shadow);

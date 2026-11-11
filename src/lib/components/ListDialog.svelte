@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { ShoppingList } from '#lib/types.js';
+	import BottomSheet from './BottomSheet.svelte';
 
 	const ICONS = ['🛒', '🏠', '🧴', '🔨', '🌱', '🎉', '🍖', '💊', '🐾', '👶', '🎁', '📝'];
 
@@ -11,193 +12,138 @@
 		ondelete: (list: ShoppingList) => void;
 	} = $props();
 
-	let dialog: HTMLDialogElement;
+	let open = $state(false);
 	let editing = $state<ShoppingList | null>(null);
 	let name = $state('');
 	let icon = $state(ICONS[0]);
 	let canDelete = $state(false);
 
-	/** Otwiera okno: bez argumentu — nowa lista, z listą — edycja. */
+	/** Otwiera panel: bez argumentu — nowa lista, z listą — edycja. */
 	export function show(list: ShoppingList | null = null, deletable = false) {
 		editing = list;
 		name = list?.name ?? '';
 		icon = list?.icon ?? ICONS[0];
 		canDelete = deletable;
-		dialog.showModal();
+		open = true;
 	}
 
 	function save(event: SubmitEvent) {
 		event.preventDefault();
 		if (!name.trim()) return;
 		onsave({ id: editing?.id ?? null, name: name.trim(), icon });
-		dialog.close();
+		open = false;
 	}
 
 	function remove() {
 		if (!editing) return;
 		if (!confirm(`Usunąć listę „${editing.name}” razem ze wszystkimi produktami?`)) return;
 		ondelete(editing);
-		dialog.close();
+		open = false;
 	}
 </script>
 
-<dialog bind:this={dialog} onclick={(e) => e.target === dialog && dialog.close()}>
+<BottomSheet bind:open title={editing ? 'Edytuj listę' : 'Nowa lista'}>
 	<form onsubmit={save}>
-		<h2>{editing ? 'Edytuj listę' : 'Nowa lista'}</h2>
+		<input bind:value={name} maxlength="60" placeholder="Nazwa, np. Budowlane" aria-label="Nazwa listy" required />
 
-		<label class="name">
-			<span>Nazwa</span>
-			<!-- svelte-ignore a11y_autofocus -->
-			<input bind:value={name} maxlength="60" placeholder="np. Budowlane" required autofocus />
-		</label>
+		<div class="icons" role="radiogroup" aria-label="Ikona">
+			{#each ICONS as option (option)}
+				<button
+					type="button"
+					role="radio"
+					aria-checked={icon === option}
+					class:selected={icon === option}
+					onclick={() => (icon = option)}>{option}</button
+				>
+			{/each}
+		</div>
 
-		<fieldset>
-			<legend>Ikona</legend>
-			<div class="icons">
-				{#each ICONS as option (option)}
-					<label class:selected={icon === option}>
-						<input type="radio" name="icon" value={option} bind:group={icon} />
-						<span aria-hidden="true">{option}</span>
-					</label>
-				{/each}
-			</div>
-		</fieldset>
-
-		<div class="actions">
+		<div class="buttons" class:with-delete={editing && canDelete}>
 			{#if editing && canDelete}
-				<button type="button" class="danger" onclick={remove}>Usuń listę</button>
+				<button type="button" class="delete" onclick={remove}>Usuń listę</button>
 			{/if}
-			<span class="spacer"></span>
-			<button type="button" onclick={() => dialog.close()}>Anuluj</button>
-			<button type="submit" class="primary" disabled={!name.trim()}>Zapisz</button>
+			<button type="submit" class="save" disabled={!name.trim()}>
+				{editing ? 'Zapisz' : 'Utwórz listę'}
+			</button>
 		</div>
 	</form>
-</dialog>
+</BottomSheet>
 
 <style>
-	dialog {
-		width: min(calc(100% - 2rem), 420px);
-		padding: 0;
-		border: 0;
-		border-radius: 16px;
-		background: var(--surface);
-		color: var(--text);
-		box-shadow: var(--shadow);
-	}
-
-	dialog::backdrop {
-		background: rgb(0 0 0 / 0.45);
-	}
-
 	form {
 		display: grid;
 		gap: 1rem;
-		padding: 1.25rem;
 	}
 
-	h2 {
-		margin: 0;
-		font-size: 1.2rem;
-	}
-
-	.name {
-		display: grid;
-		gap: 0.35rem;
-		font-size: 0.9rem;
-		color: var(--text-muted);
-	}
-
-	.name input {
-		min-height: var(--tap);
-		padding: 0 0.85rem;
+	input {
+		min-height: 50px;
+		padding: 0 0.9rem;
 		border: 1.5px solid var(--border);
-		border-radius: 10px;
+		border-radius: 14px;
 		background: var(--bg);
 		color: var(--text);
 		font-size: 17px;
+		font-weight: 600;
 		outline: none;
 	}
 
-	.name input:focus {
+	input:focus {
 		border-color: var(--accent);
 	}
 
-	fieldset {
-		margin: 0;
-		padding: 0;
+	button {
 		border: 0;
-	}
-
-	legend {
-		margin-bottom: 0.35rem;
-		font-size: 0.9rem;
-		color: var(--text-muted);
+		cursor: pointer;
+		color: inherit;
+		font: inherit;
 	}
 
 	.icons {
 		display: grid;
 		grid-template-columns: repeat(6, 1fr);
-		gap: 0.35rem;
+		gap: 0.4rem;
 	}
 
-	.icons label {
-		display: grid;
-		place-items: center;
-		height: var(--tap);
-		border: 1.5px solid transparent;
-		border-radius: 10px;
-		background: var(--bg);
-		font-size: 1.3rem;
-		cursor: pointer;
-	}
-
-	.icons label.selected {
-		border-color: var(--accent);
-	}
-
-	.icons label:focus-within {
-		outline: 2px solid var(--accent);
-		outline-offset: 1px;
-	}
-
-	.icons input {
-		position: absolute;
-		opacity: 0;
-		pointer-events: none;
-	}
-
-	.actions {
-		display: flex;
-		gap: 0.5rem;
-		flex-wrap: wrap;
-	}
-
-	.spacer {
-		flex: 1;
-	}
-
-	button {
-		min-height: var(--tap);
-		padding: 0 1rem;
-		border: 0;
-		border-radius: 10px;
+	.icons button {
+		height: 48px;
+		border: 2px solid transparent;
+		border-radius: 14px;
 		background: var(--chip);
-		font-weight: 600;
-		cursor: pointer;
+		font-size: 1.4rem;
 	}
 
-	.primary {
+	.icons button.selected {
+		border-color: var(--accent);
+		background: var(--accent-soft);
+	}
+
+	.buttons {
+		display: grid;
+		gap: 0.5rem;
+	}
+
+	.buttons.with-delete {
+		grid-template-columns: auto 1fr;
+	}
+
+	.buttons button {
+		height: 52px;
+		padding: 0 1.25rem;
+		border-radius: 16px;
+		font-weight: 700;
+	}
+
+	.delete {
+		background: var(--danger-soft);
+		color: var(--danger);
+	}
+
+	.save {
 		background: var(--accent);
 		color: var(--accent-contrast);
 	}
 
-	.primary:disabled {
+	.save:disabled {
 		opacity: 0.5;
-	}
-
-	.danger {
-		background: none;
-		color: var(--danger);
-		padding: 0 0.5rem;
 	}
 </style>

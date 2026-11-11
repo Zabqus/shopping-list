@@ -107,18 +107,21 @@ GET    /api/health                   healthcheck dla Dockera
 - [x] Live sync między urządzeniami (SSE, odświeżenie po powrocie do karty / odzyskaniu sieci)
 - [x] PWA: manifest, ikona, cache aplikacji — ⚠️ instalacja na telefonie do sprawdzenia w Etapie 4 (HTTPS)
 - [x] Tryb jasny / ciemny (automatycznie wg systemu)
-- [ ] Healthcheck + Docker + CI (healthcheck jest, Docker/CI do sprawdzenia w Etapie 4)
-- [x] Zmiana kategorii produktu (ikona kategorii przy produkcie → systemowy wybór)
+- [x] Healthcheck + Docker + CI (obraz w GHCR: `ghcr.io/zabqus/zakupy`, przetestowany lokalnie)
+- [x] Zmiana kategorii produktu (w panelu edycji)
+
+> UI jest projektowane **tylko pod przeglądarkę na telefonie**: pole dodawania na dole (kciuk),
+> gesty, bottom-sheety, duże cele dotyku. Desktop działa, ale nie jest priorytetem.
 
 ### Wersja 2 — wygoda
 - [ ] **Tryb offline** z kolejką zmian (synchronizacja po powrocie sieci)
-- [ ] Swipe w lewo = usuń, swipe w prawo = odhacz
-- [ ] Edycja produktu (ilość, notatka, kategoria) w bottom-sheet
+- [x] Swipe w lewo = usuń, swipe w prawo = odhacz (+ przytrzymanie = edycja)
+- [x] Edycja produktu (ilość, jednostka, notatka, kategoria) w bottom-sheet
 - [ ] Przeciąganie kategorii = własna kolejność alejek
 - [ ] „Kup znowu” — często kupowane produkty jednym kliknięciem
-- [ ] Wake Lock — ekran nie gaśnie w trybie zakupów
+- [x] Wake Lock — ekran nie gaśnie (przycisk ☀ w nagłówku, wymaga HTTPS)
 - [ ] Dodawanie głosem (Web Speech API)
-- [ ] Haptyka (wibracja przy odhaczeniu)
+- [x] Haptyka (wibracja przy odhaczeniu i gestach — Android; iOS Safari nie wspiera)
 
 ### Wersja 3 — rozbudowa
 - [ ] Integracja z **Home Assistant** (dodawanie głosem przez asystenta)

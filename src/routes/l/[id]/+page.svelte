@@ -3,9 +3,21 @@
 	import { flip } from 'svelte/animate';
 	import { fade, slide } from 'svelte/transition';
 	import { goto, invalidateAll } from '$app/navigation';
+	import { untrack } from 'svelte';
 	import { api, ApiError } from '#lib/api.js';
 	import { categoryHue } from '#lib/categoryStyle.js';
 	import { connectLive } from '#lib/live.svelte.js';
+	import {
+		applyOutbox,
+		cancelDelete,
+		enqueueDelete,
+		enqueueUpdate,
+		flushOutbox,
+		initOutbox,
+		isNetworkError,
+		listenOutboxFlush,
+		outbox
+	} from '#lib/outbox.svelte.js';
 	import type { Category, Item, ItemPatch, ShoppingList } from '#lib/types.js';
 	import AddItem from '#lib/components/AddItem.svelte';
 	import EditItemSheet from '#lib/components/EditItemSheet.svelte';
@@ -19,10 +31,14 @@
 
 	let { data } = $props();
 
-	// Lokalne kopie danych z serwera — zmieniamy je optymistycznie,
-	// a po invalidateAll() (live sync) wracają do stanu z serwera.
-	let items = $derived(data.items);
+	// Lokalna kopia — optymistyczne zmiany + nakładka kolejki offline po odświeżeniu z serwera.
+	let items = $state<Item[]>([]);
 	const list = $derived(data.list);
+
+	$effect.pre(() => {
+		const serverItems = data.items;
+		items = untrack(() => applyOutbox(serverItems));
+	});
 
 	// ───────────── Grupowanie + kolejność alejek (przeciąganie na liście) ─────────────
 
@@ -256,6 +272,11 @@
 		try {
 			upsert(await api.updateItem(item.id, { checked: next }));
 		} catch (err) {
+			if (isNetworkError(err)) {
+				await enqueueUpdate(item.id, next);
+				syncOutbox();
+				return;
+			}
 			fail(err);
 		}
 	}
@@ -288,6 +309,18 @@
 				onaction: () => restore([removed], removed.list_id)
 			});
 		} catch (err) {
+			if (isNetworkError(err)) {
+				await enqueueDelete(item.id);
+				showToast({
+					message: `Usunięto „${item.name}”`,
+					actionLabel: 'Cofnij',
+					onaction: async () => {
+						if (await cancelDelete(item.id)) upsert(item);
+					}
+				});
+				syncOutbox();
+				return;
+			}
 			fail(err);
 		}
 	}
@@ -345,7 +378,7 @@
 		}
 	}
 
-	// ───────────── Live sync ─────────────
+	// ───────────── Live sync + kolejka offline ─────────────
 
 	let connected = $state(true);
 	let live = $state<ReturnType<typeof connectLive> | null>(null);
@@ -354,6 +387,12 @@
 		clearTimeout(refreshTimer);
 		refreshTimer = setTimeout(() => invalidateAll(), 100);
 	};
+
+	function syncOutbox() {
+		void flushOutbox({ onSynced: upsert }).then(() => {
+			if (outbox.pending === 0) refresh();
+		});
+	}
 
 	// Baner „brak połączenia” dopiero po chwili — krótkie mrugnięcia sieci nie są warte uwagi.
 	$effect(() => {
@@ -366,7 +405,19 @@
 		return () => clearTimeout(timer);
 	});
 
+	const pendingLabel = $derived(
+		outbox.pending === 1
+			? '1 zmiana czeka na wysłanie'
+			: `${outbox.pending} ${plural(outbox.pending, 'zmiana czeka', 'zmiany czekają', 'zmian czeka')} na wysłanie`
+	);
+
 	onMount(() => {
+		void initOutbox().then(() => {
+			items = applyOutbox(data.items);
+			syncOutbox();
+		});
+		const stopOnline = listenOutboxFlush(syncOutbox);
+
 		live = connectLive({
 			onchange: (event) => {
 				if (event.type === 'list') {
@@ -381,11 +432,15 @@
 					refresh();
 				}
 			},
-			onreconnect: refresh
+			onreconnect: () => {
+				syncOutbox();
+				refresh();
+			}
 		});
 
 		return () => {
 			clearTimeout(refreshTimer);
+			stopOnline();
 			live?.close();
 		};
 	});
@@ -428,7 +483,16 @@
 
 	{#if !connected}
 		<p class="banner offline" transition:slide={{ duration: 150 }}>
-			Brak połączenia z serwerem — zmiany z innych urządzeń mogą nie docierać.
+			Brak połączenia — odhaczanie i usuwanie zapiszą się na telefonie.
+		</p>
+	{/if}
+
+	{#if outbox.pending > 0}
+		<p class="banner pending" transition:slide={{ duration: 150 }} aria-live="polite">
+			<span>{pendingLabel}{outbox.syncing ? '…' : ''}</span>
+			{#if !outbox.syncing}
+				<button type="button" onclick={syncOutbox}>Wyślij</button>
+			{/if}
 		</p>
 	{/if}
 
@@ -687,14 +751,16 @@
 		color: var(--warning-text);
 	}
 
-	.tip {
+	.pending {
 		background: var(--accent-soft);
+		justify-content: space-between;
 	}
 
-	.tip span {
+	.pending span {
 		flex: 1;
 	}
 
+	.pending button,
 	.tip button {
 		flex: none;
 		min-height: 36px;
@@ -705,6 +771,14 @@
 		color: var(--accent-contrast);
 		font-weight: 700;
 		cursor: pointer;
+	}
+
+	.tip {
+		background: var(--accent-soft);
+	}
+
+	.tip span {
+		flex: 1;
 	}
 
 	main {

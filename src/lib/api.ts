@@ -10,7 +10,13 @@ export const CLIENT_ID =
 		? crypto.randomUUID()
 		: Math.random().toString(36).slice(2) + Date.now().toString(36);
 
-export class ApiError extends Error {}
+export class ApiError extends Error {
+	status: number | null;
+	constructor(message: string, status: number | null = null) {
+		super(message);
+		this.status = status;
+	}
+}
 
 async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
 	let response: Response;
@@ -33,7 +39,7 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
 
 	if (!response.ok) {
 		const data = await response.json().catch(() => null);
-		throw new ApiError(data?.message ?? `Błąd serwera (${response.status})`);
+		throw new ApiError(data?.message ?? `Błąd serwera (${response.status})`, response.status);
 	}
 	return response.status === 204 ? (undefined as T) : response.json();
 }

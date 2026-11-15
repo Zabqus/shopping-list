@@ -19,7 +19,11 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
 			method,
 			headers: {
 				'x-client-id': CLIENT_ID,
-				...(body !== undefined ? { 'content-type': 'application/json' } : {})
+				// Zawsze JSON — także dla DELETE i POST bez treści. SvelteKit blokuje (403) żądania
+				// bez Content-Type, gdy Origin nie zgadza się z ORIGIN serwera (np. za nginx).
+				// JSON jest bezpieczny: obca strona nie wyśle go bez zgody CORS.
+				'content-type': 'application/json',
+				accept: 'application/json'
 			},
 			body: body !== undefined ? JSON.stringify(body) : undefined
 		});

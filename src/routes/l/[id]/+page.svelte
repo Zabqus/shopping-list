@@ -8,7 +8,6 @@
 	import { connectLive } from '#lib/live.svelte.js';
 	import type { Category, Item, ItemPatch, ShoppingList } from '#lib/types.js';
 	import AddItem from '#lib/components/AddItem.svelte';
-	import CategoriesSheet from '#lib/components/CategoriesSheet.svelte';
 	import EditItemSheet from '#lib/components/EditItemSheet.svelte';
 	import ItemRow from '#lib/components/ItemRow.svelte';
 	import ListDialog from '#lib/components/ListDialog.svelte';
@@ -23,18 +22,34 @@
 	let items = $derived(data.items);
 	const list = $derived(data.list);
 
-	// ───────────── Grupowanie ─────────────
+	// ───────────── Grupowanie + kolejność alejek (przeciąganie na liście) ─────────────
 
 	const NO_CATEGORY: Category = { id: -1, name: 'Bez kategorii', icon: '📦', position: Infinity };
+
+	/** Tymczasowa kolejność widocznych kategorii podczas / po przeciągnięciu. */
+	let visibleOrder = $state<number[] | null>(null);
+	let draggingCat = $state<number | null>(null);
+
+	const categories = $derived.by(() => {
+		const all = data.categories;
+		if (!visibleOrder) return all;
+		const visible = new Set(visibleOrder);
+		const queue = [...visibleOrder];
+		return all.map((c) => {
+			if (!visible.has(c.id)) return c;
+			const id = queue.shift()!;
+			return all.find((x) => x.id === id)!;
+		});
+	});
 
 	const groups = $derived.by(() => {
 		const byCategory = new Map<number, Item[]>();
 		for (const item of items) {
 			if (item.checked) continue;
-			const key = data.categories.some((c) => c.id === item.category_id) ? item.category_id! : -1;
+			const key = categories.some((c) => c.id === item.category_id) ? item.category_id! : -1;
 			byCategory.set(key, [...(byCategory.get(key) ?? []), item]);
 		}
-		return [...data.categories, NO_CATEGORY]
+		return [...categories, NO_CATEGORY]
 			.filter((c) => byCategory.has(c.id))
 			.map((category) => ({
 				category,
@@ -42,6 +57,123 @@
 				items: byCategory.get(category.id)!.sort((a, b) => a.position - b.position || a.id - b.id)
 			}));
 	});
+
+	type DragMode = 'idle' | 'pending' | 'drag' | 'scroll';
+	let dragMode: DragMode = 'idle';
+	let dragPointer = -1;
+	let dragFrom = -1;
+	let dragStartY = 0;
+	let dragTimer: ReturnType<typeof setTimeout> | undefined;
+	let dragDirty = false;
+
+	function movableIds() {
+		return groups.filter((g) => g.category.id > 0).map((g) => g.category.id);
+	}
+
+	function indexFromY(clientY: number) {
+		const nodes = [...document.querySelectorAll<HTMLElement>('main .group[data-cat]')].filter(
+			(el) => Number(el.dataset.cat) > 0
+		);
+		for (let i = 0; i < nodes.length; i++) {
+			const rect = nodes[i].getBoundingClientRect();
+			if (clientY < rect.top + rect.height / 2) return i;
+		}
+		return Math.max(0, nodes.length - 1);
+	}
+
+	function moveVisible(from: number, to: number) {
+		if (from === to || from < 0 || to < 0) return;
+		const ids = [...(visibleOrder ?? movableIds())];
+		if (to >= ids.length) return;
+		const [id] = ids.splice(from, 1);
+		ids.splice(to, 0, id);
+		visibleOrder = ids;
+		dragFrom = to;
+		dragDirty = true;
+		navigator.vibrate?.(8);
+	}
+
+	function onCatPointerDown(e: PointerEvent, categoryId: number) {
+		if (categoryId < 0) return;
+		if (e.pointerType === 'mouse' && e.button !== 0) return;
+		const el = e.currentTarget as HTMLElement;
+		dragPointer = e.pointerId;
+		dragStartY = e.clientY;
+		dragMode = 'pending';
+		dragDirty = false;
+		dragFrom = movableIds().indexOf(categoryId);
+		clearTimeout(dragTimer);
+		dragTimer = setTimeout(() => {
+			if (dragMode !== 'pending') return;
+			dragMode = 'drag';
+			draggingCat = categoryId;
+			visibleOrder = movableIds();
+			navigator.vibrate?.(12);
+			el.setPointerCapture(e.pointerId);
+		}, 420);
+	}
+
+	function onCatPointerMove(e: PointerEvent) {
+		if (e.pointerId !== dragPointer || dragMode === 'idle' || dragMode === 'scroll') return;
+		const dy = e.clientY - dragStartY;
+
+		if (dragMode === 'pending') {
+			if (Math.abs(dy) > 12) {
+				clearTimeout(dragTimer);
+				dragMode = 'scroll';
+			}
+			return;
+		}
+
+		if (dragMode === 'drag') {
+			const to = indexFromY(e.clientY);
+			if (to !== dragFrom) moveVisible(dragFrom, to);
+		}
+	}
+
+	async function onCatPointerUp(e: PointerEvent) {
+		if (e.pointerId !== dragPointer) return;
+		clearTimeout(dragTimer);
+		const wasDrag = dragMode === 'drag';
+		const dirty = dragDirty;
+		const order = visibleOrder;
+		dragMode = 'idle';
+		dragPointer = -1;
+		draggingCat = null;
+		dragDirty = false;
+
+		if (!wasDrag) {
+			visibleOrder = null;
+			return;
+		}
+		if (!dirty || !order) return;
+
+		// Zostaw visibleOrder do invalidate — inaczej mignie stara kolejność.
+		try {
+			const visible = new Set(order);
+			const queue = [...order];
+			const ids = data.categories.map((c) => {
+				if (!visible.has(c.id)) return c.id;
+				return queue.shift()!;
+			});
+			await api.reorderCategories(ids);
+			await invalidateAll();
+			visibleOrder = null;
+		} catch (err) {
+			visibleOrder = null;
+			fail(err);
+		}
+	}
+
+	function onCatPointerCancel(e: PointerEvent) {
+		if (e.pointerId !== dragPointer) return;
+		clearTimeout(dragTimer);
+		dragMode = 'idle';
+		dragPointer = -1;
+		draggingCat = null;
+		dragDirty = false;
+		visibleOrder = null;
+	}
 
 	const checked = $derived(
 		items.filter((i) => i.checked).sort((a, b) => (b.checked_at ?? '').localeCompare(a.checked_at ?? ''))
@@ -174,36 +306,7 @@
 	// ───────────── Listy ─────────────
 
 	let listsOpen = $state(false);
-	let aislesOpen = $state(false);
 	let listDialog: ListDialog;
-
-	async function reorderCategories(ids: number[]) {
-		try {
-			await api.reorderCategories(ids);
-			await invalidateAll();
-		} catch (err) {
-			fail(err);
-		}
-	}
-
-	/** Przytrzymanie nagłówka kategorii → sheet z kolejnością alejek. */
-	function holdForAisles(e: PointerEvent, categoryId: number) {
-		if (categoryId < 0) return;
-		const target = e.currentTarget as HTMLElement;
-		const timer = setTimeout(() => {
-			navigator.vibrate?.(10);
-			aislesOpen = true;
-		}, 450);
-		const clear = () => {
-			clearTimeout(timer);
-			target.removeEventListener('pointerup', clear);
-			target.removeEventListener('pointercancel', clear);
-			target.removeEventListener('pointerleave', clear);
-		};
-		target.addEventListener('pointerup', clear);
-		target.addEventListener('pointercancel', clear);
-		target.addEventListener('pointerleave', clear);
-	}
 
 	async function saveList({ id, name, icon }: { id: number | null; name: string; icon: string }) {
 		try {
@@ -316,14 +419,15 @@
 	{#if showTip && total > 0}
 		<div class="banner tip" transition:slide={{ duration: 180 }}>
 			<span>
-				👉 Przesuń w prawo — <b>kupione</b>, w lewo — <b>usuń</b>. Przytrzymaj, żeby <b>edytować</b>.
+				👉 Przesuń w prawo — <b>kupione</b>, w lewo — <b>usuń</b>. Przytrzymaj produkt — <b>edycja</b>,
+				przytrzymaj kategorię i przeciągnij — <b>kolejność alejek</b>.
 			</span>
 			<button type="button" onclick={hideTip} aria-label="Zamknij podpowiedź">OK</button>
 		</div>
 	{/if}
 
 	{#key list.id}
-		<main>
+		<main class:reordering={draggingCat !== null}>
 			{#if total === 0}
 				<div class="empty" in:fade={{ duration: 200 }}>
 					<div class="empty-art" aria-hidden="true">🧺</div>
@@ -334,14 +438,32 @@
 			{/if}
 
 			{#each groups as group (group.category.id)}
-				<section class="group" style:--hue={group.hue} transition:slide={{ duration: 200 }}>
+				<section
+					class="group"
+					class:dragging={draggingCat === group.category.id}
+					data-cat={group.category.id}
+					style:--hue={group.hue}
+					animate:flip={{ duration: draggingCat === group.category.id ? 0 : 200 }}
+					transition:slide={{ duration: 200 }}
+				>
 					<h2>
 						<button
 							type="button"
 							class="cat-head"
-							aria-label="Kolejność alejek — {group.category.name}"
-							onpointerdown={(e) => holdForAisles(e, group.category.id)}
+							class:draggable={group.category.id > 0}
+							aria-label={group.category.id > 0
+								? `Przeciągnij kategorię ${group.category.name}`
+								: group.category.name}
+							onpointerdown={(e) => onCatPointerDown(e, group.category.id)}
+							onpointermove={onCatPointerMove}
+							onpointerup={onCatPointerUp}
+							onpointercancel={onCatPointerCancel}
 						>
+							{#if group.category.id > 0}
+								<span class="grip" aria-hidden="true">
+									<svg viewBox="0 0 24 24"><path d="M8 7h8M8 12h8M8 17h8" /></svg>
+								</span>
+							{/if}
 							<span class="cat-icon" aria-hidden="true">{group.category.icon}</span>
 							<span class="cat-name">{group.category.name}</span>
 							<span class="cat-count">{group.items.length}</span>
@@ -389,7 +511,7 @@
 	{/key}
 </div>
 
-<AddItem listId={list.id} categories={data.categories} onadd={addItem} />
+<AddItem listId={list.id} categories={categories} onadd={addItem} />
 
 <ListsSheet
 	bind:open={listsOpen}
@@ -407,16 +529,11 @@
 		listsOpen = false;
 		listDialog.show(l, data.lists.length > 1);
 	}}
-	onaisles={() => {
-		listsOpen = false;
-		aislesOpen = true;
-	}}
 />
-<CategoriesSheet bind:open={aislesOpen} categories={data.categories} onreorder={reorderCategories} />
 <ListDialog bind:this={listDialog} onsave={saveList} ondelete={deleteList} />
 <EditItemSheet
 	item={editing}
-	categories={data.categories}
+	categories={categories}
 	onsave={saveItem}
 	ondelete={remove}
 	onclose={() => (editing = null)}
@@ -579,11 +696,26 @@
 		gap: 0.85rem;
 	}
 
+	main.reordering {
+		touch-action: none;
+		user-select: none;
+		-webkit-user-select: none;
+	}
+
 	.group {
 		overflow: hidden;
 		border-radius: var(--radius);
 		background: var(--surface);
 		box-shadow: var(--shadow-sm);
+		transition:
+			box-shadow 0.15s,
+			transform 0.15s;
+	}
+
+	.group.dragging {
+		z-index: 5;
+		box-shadow: var(--shadow);
+		transform: scale(1.015);
 	}
 
 	.group h2,
@@ -595,7 +727,7 @@
 	.cat-head {
 		display: flex;
 		align-items: center;
-		gap: 0.6rem;
+		gap: 0.5rem;
 		width: 100%;
 		margin: 0;
 		padding: 0.4rem 0.65rem;
@@ -605,11 +737,37 @@
 		color: inherit;
 		font: inherit;
 		text-align: left;
-		cursor: pointer;
+		cursor: default;
+		touch-action: pan-y;
 	}
 
-	.cat-head:active {
+	.cat-head.draggable {
+		cursor: grab;
+		touch-action: none;
+	}
+
+	.cat-head.draggable:active {
+		cursor: grabbing;
 		background: var(--chip);
+	}
+
+	.grip {
+		display: grid;
+		place-items: center;
+		flex: none;
+		width: 22px;
+		height: 30px;
+		color: var(--text-muted);
+		opacity: 0.55;
+	}
+
+	.grip svg {
+		width: 18px;
+		height: 18px;
+		fill: none;
+		stroke: currentColor;
+		stroke-width: 2.2;
+		stroke-linecap: round;
 	}
 
 	.basket-header {

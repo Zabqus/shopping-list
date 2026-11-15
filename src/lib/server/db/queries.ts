@@ -83,6 +83,20 @@ export function getCategories(): Category[] {
 	return getDb().prepare('SELECT * FROM categories ORDER BY position, id').all() as unknown as Category[];
 }
 
+/** Ustawia kolejność alejek wg podanej listy id (musi zawierać wszystkie kategorie). */
+export function reorderCategories(ids: number[]): Category[] | null {
+	const existing = getCategories();
+	if (ids.length !== existing.length) return null;
+	const known = new Set(existing.map((c) => c.id));
+	if (ids.some((id) => !known.has(id)) || new Set(ids).size !== ids.length) return null;
+
+	return transaction(() => {
+		const stmt = getDb().prepare('UPDATE categories SET position = ? WHERE id = ?');
+		ids.forEach((id, i) => stmt.run((i + 1) * 10, id));
+		return getCategories();
+	});
+}
+
 function categoryIdByName(name: string): number | null {
 	const row = getDb().prepare('SELECT id FROM categories WHERE name = ?').get(name) as { id: number } | undefined;
 	return row?.id ?? null;

@@ -8,7 +8,8 @@
 		currentId,
 		onselect,
 		oncreate,
-		onedit
+		onedit,
+		onaisles
 	}: {
 		open?: boolean;
 		lists: ShoppingList[];
@@ -16,6 +17,7 @@
 		onselect: (list: ShoppingList) => void;
 		oncreate: () => void;
 		onedit: (list: ShoppingList) => void;
+		onaisles: () => void;
 	} = $props();
 
 	const count = (n: number | undefined) =>
@@ -45,6 +47,10 @@
 
 	<button type="button" class="new" onclick={oncreate}>
 		<span aria-hidden="true">＋</span> Nowa lista
+	</button>
+
+	<button type="button" class="aisles" onclick={onaisles}>
+		<span aria-hidden="true">🗺️</span> Kolejność alejek
 	</button>
 </BottomSheet>
 
@@ -150,5 +156,18 @@
 		border-radius: 16px;
 		font-weight: 700;
 		color: var(--text-muted);
+	}
+
+	.aisles {
+		width: 100%;
+		height: 48px;
+		margin-top: 0.5rem;
+		border-radius: 14px;
+		font-weight: 650;
+		color: var(--text-muted);
+	}
+
+	.aisles:active {
+		background: var(--chip);
 	}
 </style>

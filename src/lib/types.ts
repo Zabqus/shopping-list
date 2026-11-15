@@ -69,4 +69,5 @@ export type ChangeEvent = (
 	| { type: 'item'; action: 'created' | 'updated' | 'deleted'; listId: number; itemId: number }
 	| { type: 'items-cleared'; listId: number }
 	| { type: 'items-restored'; listId: number }
+	| { type: 'categories'; action: 'reordered' }
 ) & { source?: string };

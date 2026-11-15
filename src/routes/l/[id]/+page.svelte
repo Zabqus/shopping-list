@@ -8,6 +8,7 @@
 	import { connectLive } from '#lib/live.svelte.js';
 	import type { Category, Item, ItemPatch, ShoppingList } from '#lib/types.js';
 	import AddItem from '#lib/components/AddItem.svelte';
+	import CategoriesSheet from '#lib/components/CategoriesSheet.svelte';
 	import EditItemSheet from '#lib/components/EditItemSheet.svelte';
 	import ItemRow from '#lib/components/ItemRow.svelte';
 	import ListDialog from '#lib/components/ListDialog.svelte';
@@ -173,7 +174,36 @@
 	// ───────────── Listy ─────────────
 
 	let listsOpen = $state(false);
+	let aislesOpen = $state(false);
 	let listDialog: ListDialog;
+
+	async function reorderCategories(ids: number[]) {
+		try {
+			await api.reorderCategories(ids);
+			await invalidateAll();
+		} catch (err) {
+			fail(err);
+		}
+	}
+
+	/** Przytrzymanie nagłówka kategorii → sheet z kolejnością alejek. */
+	function holdForAisles(e: PointerEvent, categoryId: number) {
+		if (categoryId < 0) return;
+		const target = e.currentTarget as HTMLElement;
+		const timer = setTimeout(() => {
+			navigator.vibrate?.(10);
+			aislesOpen = true;
+		}, 450);
+		const clear = () => {
+			clearTimeout(timer);
+			target.removeEventListener('pointerup', clear);
+			target.removeEventListener('pointercancel', clear);
+			target.removeEventListener('pointerleave', clear);
+		};
+		target.addEventListener('pointerup', clear);
+		target.addEventListener('pointercancel', clear);
+		target.addEventListener('pointerleave', clear);
+	}
 
 	async function saveList({ id, name, icon }: { id: number | null; name: string; icon: string }) {
 		try {
@@ -306,9 +336,16 @@
 			{#each groups as group (group.category.id)}
 				<section class="group" style:--hue={group.hue} transition:slide={{ duration: 200 }}>
 					<h2>
-						<span class="cat-icon" aria-hidden="true">{group.category.icon}</span>
-						<span class="cat-name">{group.category.name}</span>
-						<span class="cat-count">{group.items.length}</span>
+						<button
+							type="button"
+							class="cat-head"
+							aria-label="Kolejność alejek — {group.category.name}"
+							onpointerdown={(e) => holdForAisles(e, group.category.id)}
+						>
+							<span class="cat-icon" aria-hidden="true">{group.category.icon}</span>
+							<span class="cat-name">{group.category.name}</span>
+							<span class="cat-count">{group.items.length}</span>
+						</button>
 					</h2>
 					<ul>
 						{#each group.items as item (item.id)}
@@ -370,7 +407,12 @@
 		listsOpen = false;
 		listDialog.show(l, data.lists.length > 1);
 	}}
+	onaisles={() => {
+		listsOpen = false;
+		aislesOpen = true;
+	}}
 />
+<CategoriesSheet bind:open={aislesOpen} categories={data.categories} onreorder={reorderCategories} />
 <ListDialog bind:this={listDialog} onsave={saveList} ondelete={deleteList} />
 <EditItemSheet
 	item={editing}
@@ -546,10 +588,34 @@
 
 	.group h2,
 	.basket-header {
+		margin: 0;
+		padding: 0.35rem 0.35rem 0.1rem;
+	}
+
+	.cat-head {
 		display: flex;
 		align-items: center;
 		gap: 0.6rem;
+		width: 100%;
 		margin: 0;
+		padding: 0.4rem 0.65rem;
+		border: 0;
+		border-radius: 12px;
+		background: none;
+		color: inherit;
+		font: inherit;
+		text-align: left;
+		cursor: pointer;
+	}
+
+	.cat-head:active {
+		background: var(--chip);
+	}
+
+	.basket-header {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
 		padding: 0.75rem 1rem 0.35rem;
 	}
 

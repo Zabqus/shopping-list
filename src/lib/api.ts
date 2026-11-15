@@ -1,4 +1,4 @@
-import type { Item, ItemPatch, ShoppingList, Suggestion } from '#lib/types.js';
+import type { Category, Item, ItemPatch, ShoppingList, Suggestion } from '#lib/types.js';
 
 /**
  * Id tej karty przeglądarki — wysyłany w X-Client-Id, wraca w zdarzeniach SSE,
@@ -61,5 +61,7 @@ export const api = {
 	frequent: (listId: number, signal?: AbortSignal) =>
 		fetch(`/api/suggest?list=${listId}`, { signal }).then(
 			(r) => (r.ok ? (r.json() as Promise<Suggestion[]>) : [])
-		)
+		),
+
+	reorderCategories: (ids: number[]) => request<Category[]>('PUT', '/api/categories', { ids })
 };

@@ -1,48 +1,63 @@
-# 🛒 Zakupy
+# Zakupy
 
-Self-hosted lista zakupów z synchronizacją na żywo (SvelteKit + SQLite + SSE, PWA).
-Pełny plan, architektura i konwencje: [PLAN.md](PLAN.md).
+Self-hosted shopping list with live sync between devices. Built with SvelteKit, SQLite, and SSE. Works as a PWA in the browser.
 
-## Wymagania
+## Features
 
-- Node.js 24 LTS (`node -v`)
+- Fast add flow (one field, Enter, autocomplete)
+- Category grouping for shopping
+- Live sync across devices (SSE)
+- Light / dark theme (system)
+- Single SQLite file — easy backup
 
-## Start lokalnie
+## Requirements
+
+- [Node.js](https://nodejs.org/) 24+
+
+## Getting started
 
 ```bash
 npm install
-cp .env.example .env   # opcjonalnie — domyślnie baza ląduje w ./data/zakupy.db
+cp .env.example .env   # optional — defaults to ./data/zakupy.db
 npm run dev            # http://localhost:5173
 ```
 
-## Skrypty
+### Production (local)
 
-| Komenda | Opis |
+```bash
+npm run build
+npm start              # http://localhost:3000
+```
+
+### Docker (optional)
+
+```bash
+docker build -t zakupy .
+docker run -p 3000:3000 -v ./data:/app/data zakupy
+```
+
+## Scripts
+
+| Command | Description |
 |---|---|
-| `npm run dev` | serwer deweloperski |
-| `npm run check` | sprawdzenie typów |
-| `npm run build` | build produkcyjny do `build/` |
-| `npm start` | uruchomienie buildu (`node build`) |
+| `npm run dev` | development server |
+| `npm run check` | type check |
+| `npm run build` | production build → `build/` |
+| `npm start` | run production build |
 
-## Struktura
+## Configuration
 
-```
-src/lib/server/db/          połączenie z SQLite, migracje (migrations/*.sql), queries.ts
-src/lib/server/categories.ts  słownik PL: produkt → kategoria
-src/lib/server/events.ts    rozgłaszanie zmian (SSE)
-src/lib/parse.ts            parsowanie „2 mleko”, „mleko x2” (front + back)
-src/lib/components/         komponenty UI
-src/lib/types.ts            wspólne typy
-src/routes/l/[id]/          widok listy
-src/routes/api/             endpointy REST + /api/events + /api/health
-src/service-worker/         PWA / cache
-deploy/                     compose.yaml dla Dockge, przykładowy nginx
-```
+Copy `.env.example` to `.env` if you need to override defaults:
 
-Nowa zmiana schematu bazy = nowy plik `NNN_opis.sql` w `src/lib/server/db/migrations/`
-(migracje uruchamiają się automatycznie przy starcie, starych plików nie edytujemy).
+| Variable | Default | Description |
+|---|---|---|
+| `DATABASE_PATH` | `./data/zakupy.db` | SQLite database file |
+| `PORT` | `3000` | production server port |
+| `HOST` | `0.0.0.0` | bind address |
+| `ORIGIN` | — | public URL (needed behind a reverse proxy for CSRF) |
 
-## Wdrożenie
+Database migrations run automatically on startup. Add new schema changes as `NNN_description.sql` under `src/lib/server/db/migrations/` — do not edit existing migration files.
 
-Push na `main` → GitHub Actions buduje obraz `ghcr.io/<nick>/zakupy:latest` →
-w Dockge stack **zakupy** → **Update**. Szczegóły w [PLAN.md](PLAN.md#7-workflow-na-co-dzień).
+## More
+
+Architecture, API, and day-to-day workflow: [PLAN.md](PLAN.md).

@@ -65,23 +65,20 @@
 	let dragStartY = 0;
 	let dragTimer: ReturnType<typeof setTimeout> | undefined;
 	let dragDirty = false;
+	/** Po swapie palec musi wyjść z martwej strefy, zanim pójdzie w drugą stronę. */
+	let swapArmedDir: -1 | 0 | 1 = 0;
+	let swapArmY = 0;
+	const SWAP_DEADZONE = 36;
 
 	function movableIds() {
 		return groups.filter((g) => g.category.id > 0).map((g) => g.category.id);
 	}
 
-	function indexFromY(clientY: number) {
-		const nodes = [...document.querySelectorAll<HTMLElement>('main .group[data-cat]')].filter(
-			(el) => Number(el.dataset.cat) > 0
-		);
-		for (let i = 0; i < nodes.length; i++) {
-			const rect = nodes[i].getBoundingClientRect();
-			if (clientY < rect.top + rect.height / 2) return i;
-		}
-		return Math.max(0, nodes.length - 1);
+	function groupEl(id: number) {
+		return document.querySelector<HTMLElement>(`main .group[data-cat="${id}"]`);
 	}
 
-	function moveVisible(from: number, to: number) {
+	function moveVisible(from: number, to: number, clientY: number) {
 		if (from === to || from < 0 || to < 0) return;
 		const ids = [...(visibleOrder ?? movableIds())];
 		if (to >= ids.length) return;
@@ -90,7 +87,58 @@
 		visibleOrder = ids;
 		dragFrom = to;
 		dragDirty = true;
+		swapArmedDir = to > from ? 1 : -1;
+		swapArmY = clientY;
 		navigator.vibrate?.(8);
+	}
+
+	/** Tylko zamiana z sąsiadem — stabilniejsze niż skakanie po midpoints całej listy. */
+	function trySwapAdjacent(clientY: number) {
+		const ids = visibleOrder ?? movableIds();
+		const from = dragFrom;
+		if (from < 0 || from >= ids.length) return;
+
+		// Po swapie w dół: nie zamieniaj w górę, dopóki palec nie wróci powyżej punktu swapa − deadzone.
+		if (swapArmedDir === 1 && clientY > swapArmY - SWAP_DEADZONE) {
+			const nextId = from < ids.length - 1 ? ids[from + 1] : null;
+			if (!nextId) return;
+			const next = groupEl(nextId);
+			if (!next) return;
+			const r = next.getBoundingClientRect();
+			if (clientY > r.top + r.height * 0.55) moveVisible(from, from + 1, clientY);
+			return;
+		}
+		if (swapArmedDir === -1 && clientY < swapArmY + SWAP_DEADZONE) {
+			const prevId = from > 0 ? ids[from - 1] : null;
+			if (!prevId) return;
+			const prev = groupEl(prevId);
+			if (!prev) return;
+			const r = prev.getBoundingClientRect();
+			if (clientY < r.top + r.height * 0.45) moveVisible(from, from - 1, clientY);
+			return;
+		}
+		swapArmedDir = 0;
+
+		const prevId = from > 0 ? ids[from - 1] : null;
+		const nextId = from < ids.length - 1 ? ids[from + 1] : null;
+
+		if (prevId != null) {
+			const prev = groupEl(prevId);
+			if (prev) {
+				const r = prev.getBoundingClientRect();
+				if (clientY < r.top + r.height * 0.45) {
+					moveVisible(from, from - 1, clientY);
+					return;
+				}
+			}
+		}
+		if (nextId != null) {
+			const next = groupEl(nextId);
+			if (next) {
+				const r = next.getBoundingClientRect();
+				if (clientY > r.top + r.height * 0.55) moveVisible(from, from + 1, clientY);
+			}
+		}
 	}
 
 	function onCatPointerDown(e: PointerEvent, categoryId: number) {
@@ -101,6 +149,7 @@
 		dragStartY = e.clientY;
 		dragMode = 'pending';
 		dragDirty = false;
+		swapArmedDir = 0;
 		dragFrom = movableIds().indexOf(categoryId);
 		clearTimeout(dragTimer);
 		dragTimer = setTimeout(() => {
@@ -125,10 +174,7 @@
 			return;
 		}
 
-		if (dragMode === 'drag') {
-			const to = indexFromY(e.clientY);
-			if (to !== dragFrom) moveVisible(dragFrom, to);
-		}
+		if (dragMode === 'drag') trySwapAdjacent(e.clientY);
 	}
 
 	async function onCatPointerUp(e: PointerEvent) {
@@ -141,6 +187,7 @@
 		dragPointer = -1;
 		draggingCat = null;
 		dragDirty = false;
+		swapArmedDir = 0;
 
 		if (!wasDrag) {
 			visibleOrder = null;
@@ -172,6 +219,7 @@
 		dragPointer = -1;
 		draggingCat = null;
 		dragDirty = false;
+		swapArmedDir = 0;
 		visibleOrder = null;
 	}
 
@@ -443,8 +491,8 @@
 					class:dragging={draggingCat === group.category.id}
 					data-cat={group.category.id}
 					style:--hue={group.hue}
-					animate:flip={{ duration: draggingCat === group.category.id ? 0 : 200 }}
-					transition:slide={{ duration: 200 }}
+					animate:flip={{ duration: draggingCat !== null ? 0 : 200 }}
+					transition:slide={{ duration: draggingCat !== null ? 0 : 200 }}
 				>
 					<h2>
 						<button

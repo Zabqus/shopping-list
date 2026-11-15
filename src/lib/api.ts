@@ -55,5 +55,11 @@ export const api = {
 	suggest: (q: string, listId: number, signal?: AbortSignal) =>
 		fetch(`/api/suggest?q=${encodeURIComponent(q)}&list=${listId}`, { signal }).then(
 			(r) => (r.ok ? (r.json() as Promise<Suggestion[]>) : [])
+		),
+
+	/** Często kupowane produkty (pole puste) — GET /api/suggest?list=… */
+	frequent: (listId: number, signal?: AbortSignal) =>
+		fetch(`/api/suggest?list=${listId}`, { signal }).then(
+			(r) => (r.ok ? (r.json() as Promise<Suggestion[]>) : [])
 		)
 };

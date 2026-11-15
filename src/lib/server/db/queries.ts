@@ -143,6 +143,23 @@ export function suggest(query: string, listId: number | null, limit = 8): Sugges
 		.all(`${escaped}%`, `% ${escaped}%`, listId ?? -1, `${escaped}%`, limit) as unknown as Suggestion[];
 }
 
+/** Często kupowane — „Kup znowu”: bez produktów, które już są na liście (także odhaczone). */
+export function frequentProducts(listId: number | null, limit = 12): Suggestion[] {
+	return getDb()
+		.prepare(
+			`SELECT p.name, p.category_id, p.use_count
+			 FROM products p
+			 WHERE p.use_count > 0
+			   AND NOT EXISTS (
+				SELECT 1 FROM items i
+				WHERE i.list_id = ? AND i.name = p.name COLLATE NOCASE
+			   )
+			 ORDER BY p.use_count DESC, p.last_used_at DESC
+			 LIMIT ?`
+		)
+		.all(listId ?? -1, limit) as unknown as Suggestion[];
+}
+
 // ───────────────────────── Produkty na liście ─────────────────────────
 
 export function getItems(listId: number): Item[] {

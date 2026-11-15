@@ -18,29 +18,50 @@
 	let input: HTMLInputElement;
 	let text = $state('');
 	let suggestions = $state<Suggestion[]>([]);
+	let frequent = $state<Suggestion[]>([]);
 	let focused = $state(false);
 	let keyboard = $state(0);
 
 	const category = (id: number | null) => categories.find((c) => c.id === id);
 	const parsed = $derived(parseItem(text));
 	const showSuggestions = $derived(focused && suggestions.length > 0);
+	const showBuyAgain = $derived(focused && !parsed.name.trim() && frequent.length > 0);
 
-	// Podpowiedzi: szukamy po samej nazwie, bez ilości („2 ml” → „ml”), z małym opóźnieniem.
+	// Podpowiedzi przy pisaniu; „Kup znowu” gdy pole puste i ma fokus.
 	$effect(() => {
 		const query = parsed.name.trim();
 		const list = listId;
-		if (!query) {
-			suggestions = [];
+		const isFocused = focused;
+		const controller = new AbortController();
+
+		if (query) {
+			frequent = [];
+			const timer = setTimeout(async () => {
+				try {
+					suggestions = await api.suggest(query, list, controller.signal);
+				} catch {
+					// przerwane lub brak sieci — podpowiedzi nie są krytyczne
+				}
+			}, 120);
+			return () => {
+				clearTimeout(timer);
+				controller.abort();
+			};
+		}
+
+		suggestions = [];
+		if (!isFocused) {
+			frequent = [];
 			return;
 		}
-		const controller = new AbortController();
+
 		const timer = setTimeout(async () => {
 			try {
-				suggestions = await api.suggest(query, list, controller.signal);
+				frequent = await api.frequent(list, controller.signal);
 			} catch {
-				// przerwane lub brak sieci — podpowiedzi nie są krytyczne
+				// j.w.
 			}
-		}, 120);
+		}, 80);
 		return () => {
 			clearTimeout(timer);
 			controller.abort();
@@ -72,6 +93,12 @@
 	function pick(suggestion: Suggestion) {
 		submit(quantityPrefix(parsed.quantity, parsed.unit) + suggestion.name);
 	}
+
+	function buyAgain(suggestion: Suggestion) {
+		frequent = frequent.filter((f) => f.name !== suggestion.name);
+		navigator.vibrate?.(10);
+		submit(suggestion.name);
+	}
 </script>
 
 <div class="bar" style:--keyboard="{keyboard}px">
@@ -95,6 +122,26 @@
 				</li>
 			{/each}
 		</ul>
+	{:else if showBuyAgain}
+		<div class="buy-again" role="listbox" aria-label="Kup znowu">
+			<span class="buy-again-label">Kup znowu</span>
+			<div class="chips">
+				{#each frequent as suggestion (suggestion.name)}
+					{@const c = category(suggestion.category_id)}
+					<button
+						type="button"
+						role="option"
+						aria-selected="false"
+						style:--hue={categoryHue(c)}
+						onpointerdown={(e) => e.preventDefault()}
+						onclick={() => buyAgain(suggestion)}
+					>
+						<span class="chip-emoji" aria-hidden="true">{c?.icon ?? '📦'}</span>
+						{suggestion.name}
+					</button>
+				{/each}
+			</div>
+		</div>
 	{/if}
 
 	<form
@@ -136,7 +183,8 @@
 	}
 
 	form,
-	.suggestions {
+	.suggestions,
+	.buy-again {
 		max-width: 616px;
 		margin: 0 auto;
 	}
@@ -255,5 +303,67 @@
 		font-size: 0.85rem;
 		font-weight: 700;
 		color: var(--text-muted);
+	}
+
+	/* „Kup znowu” — poziome chipy nad klawiaturą */
+	.buy-again {
+		padding: 0 0 0.55rem;
+	}
+
+	.buy-again-label {
+		display: block;
+		margin: 0 0.15rem 0.35rem;
+		font-size: 0.72rem;
+		font-weight: 700;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: var(--text-muted);
+	}
+
+	.chips {
+		display: flex;
+		gap: 0.4rem;
+		overflow-x: auto;
+		-webkit-overflow-scrolling: touch;
+		scrollbar-width: none;
+		padding: 0.05rem 0.05rem 0.15rem;
+	}
+
+	.chips::-webkit-scrollbar {
+		display: none;
+	}
+
+	.chips button {
+		flex: none;
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+		min-height: 40px;
+		padding: 0 0.85rem 0 0.45rem;
+		border: 0;
+		border-radius: 99px;
+		background: var(--surface);
+		color: var(--text);
+		font: inherit;
+		font-size: 0.95rem;
+		font-weight: 600;
+		white-space: nowrap;
+		cursor: pointer;
+		box-shadow: var(--shadow-sm);
+	}
+
+	.chips button:active {
+		background: var(--surface-pressed);
+		transform: scale(0.96);
+	}
+
+	.chip-emoji {
+		display: grid;
+		place-items: center;
+		width: 28px;
+		height: 28px;
+		border-radius: 50%;
+		background: hsl(var(--hue) 70% var(--tint-l));
+		font-size: 0.9rem;
 	}
 </style>

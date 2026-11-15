@@ -7,7 +7,8 @@ Self-hosted shopping list with live sync between devices. Built with SvelteKit, 
 - Fast add flow (one field, Enter, autocomplete)
 - Category grouping for shopping
 - Live sync across devices (SSE)
-- Light / dark theme (system)
+- Light / dark / system theme (manual toggle in the header)
+
 - Single SQLite file — easy backup
 
 ## Requirements

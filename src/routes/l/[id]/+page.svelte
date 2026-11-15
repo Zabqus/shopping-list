@@ -13,7 +13,9 @@
 	import ListDialog from '#lib/components/ListDialog.svelte';
 	import ListsSheet from '#lib/components/ListsSheet.svelte';
 	import Toast, { type ToastData } from '#lib/components/Toast.svelte';
+	import ThemeButton from '#lib/components/ThemeButton.svelte';
 	import WakeLockButton from '#lib/components/WakeLockButton.svelte';
+
 
 	let { data } = $props();
 
@@ -399,8 +401,10 @@
 		<span class="list-name">{list.name}</span>
 		<svg class="chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" /></svg>
 	</button>
+	<ThemeButton />
 	<WakeLockButton />
 </header>
+
 
 <div class="page">
 	{#if total > 0}

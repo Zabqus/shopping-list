@@ -5,11 +5,15 @@
 		<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
 		<meta name="color-scheme" content="light dark" />
 		<meta id="theme-color" name="theme-color" content="#f3f4f1" />
+		<meta name="mobile-web-app-capable" content="yes" />
 		<meta name="apple-mobile-web-app-capable" content="yes" />
 		<meta name="apple-mobile-web-app-title" content="Zakupy" />
+		<meta name="apple-mobile-web-app-status-bar-style" content="default" />
 		<link rel="manifest" href="%sveltekit.assets%/manifest.webmanifest" />
 		<link rel="icon" href="%sveltekit.assets%/icon.svg" type="image/svg+xml" />
-		<link rel="apple-touch-icon" href="%sveltekit.assets%/icon.svg" />
+		<link rel="icon" href="%sveltekit.assets%/icon-192.png" type="image/png" sizes="192x192" />
+		<!-- iOS nie obsługuje SVG ani manifestu dla ikony — musi być PNG 180×180 bez przezroczystości -->
+		<link rel="apple-touch-icon" href="%sveltekit.assets%/apple-touch-icon.png" />
 		<title>Zakupy</title>
 		<script>
 			(function () {
